@@ -1,0 +1,23 @@
+# IDE files
+.idea
+*.iml
+
+# Generated files
+bin/
+gen/
+*.aar
+*.apk
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Local private files
+release.keystore
+
+# Log Files
+*.log
+captures/

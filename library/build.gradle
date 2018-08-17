@@ -1,0 +1,46 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'com.github.dcendents.android-maven'
+
+android {
+    compileSdkVersion 28
+    buildToolsVersion '28.0.2'
+
+    defaultConfig {
+        minSdkVersion 16
+        targetSdkVersion 28
+        versionCode 1
+        versionName '1.0.0'
+    }
+    lintOptions {
+        checkReleaseBuilds true
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:${versions.kotlin}"
+
+    implementation "com.android.support:support-v4:${versions.support}"
+}
+
+task sourcesJar(type: Jar) {
+    from android.sourceSets.main.java.srcDirs
+    classifier = 'sources'
+}
+
+artifacts {
+    archives sourcesJar
+}
+repositories {
+    mavenCentral()
+}
+
+// uncomment to build a jar file in addition to the default aar file
+//android.libraryVariants.all { variant ->
+//    def name = variant.buildType.name
+//    def task = project.tasks.create "jar${name.capitalize()}", Jar
+//    task.dependsOn variant.javaCompile
+//    task.from variant.javaCompile.destinationDir
+//    artifacts.add('archives', task);
+//}
