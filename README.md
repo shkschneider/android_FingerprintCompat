@@ -3,6 +3,6 @@ FingerprintCompat
 
 This helper library help detect fingerprints for multiple SDK levels.
 
-It currently handles everything as of API-23.
-API-28 new biometric API is not yet supported.
-It also only supports background detection for now (with API-23).
+API-28 and up it allows a foreground detection, with the native BottomSheet presented by the latest BiometricPrompt API.
+
+API-23 and up it allows a background detection. Is which case it's up to you to implement a UI for the user.

@@ -8,11 +8,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.support.annotation.ColorInt
-import android.support.v4.hardware.fingerprint.FingerprintManagerCompat
 import android.support.v7.app.AppCompatActivity
 import android.widget.Toast
 import kotlinx.android.synthetic.main.activity_main.*
 import me.shkschneider.fingerprintcompat.FingerprintCompat
+import java.security.Signature
+import javax.crypto.Cipher
+import javax.crypto.Mac
 
 class MainActivity : AppCompatActivity(), FingerprintCompat.Callback {
 
@@ -40,19 +42,33 @@ class MainActivity : AppCompatActivity(), FingerprintCompat.Callback {
     }
 
     private fun fingerprintOn() {
-        if (Build.VERSION.SDK_INT >= 23) {
-            if (checkSelfPermission(Manifest.permission.USE_FINGERPRINT) == PackageManager.PERMISSION_GRANTED) {
-                FingerprintCompat.authenticate(applicationContext, this)
+        if (Build.VERSION.SDK_INT >= 28) {
+            if (checkSelfPermission(Manifest.permission.USE_BIOMETRIC) == PackageManager.PERMISSION_GRANTED) {
+                FingerprintCompat.foreground(applicationContext, this, "FingerprintCompat")
             } else if (! FingerprintCompat.available(applicationContext)) {
                 Toast.makeText(applicationContext, "Unavailable", Toast.LENGTH_SHORT).show()
             } else {
+                @Suppress("DEPRECATION")
+                requestPermissions(arrayOf(Manifest.permission.USE_FINGERPRINT), 0)
+            }
+        } else if (Build.VERSION.SDK_INT >= 23) {
+            @Suppress("DEPRECATION")
+            if (checkSelfPermission(Manifest.permission.USE_FINGERPRINT) == PackageManager.PERMISSION_GRANTED) {
+                FingerprintCompat.background(applicationContext, this)
+            } else if (! FingerprintCompat.available(applicationContext)) {
+                Toast.makeText(applicationContext, "Unavailable", Toast.LENGTH_SHORT).show()
+            } else {
+                @Suppress("DEPRECATION")
                 requestPermissions(arrayOf(Manifest.permission.USE_FINGERPRINT), 0)
             }
         }
     }
 
-    override fun onFingerprintSucceeded(result: FingerprintManagerCompat.CryptoObject?) {
+    override fun onFingerprintSucceeded(signature: Signature?, cipher: Cipher?, mac: Mac?) {
         update(Color.GREEN, "OK")
+        signature?.let {
+            Toast.makeText(applicationContext, signature.toString(), Toast.LENGTH_SHORT).show()
+        }
         Handler(Looper.getMainLooper()).postDelayed({
             fingerprintOn()
         }, 2000)

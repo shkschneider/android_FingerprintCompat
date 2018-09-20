@@ -20,15 +20,13 @@ import android.support.annotation.RequiresPermission
 import android.support.v4.app.ActivityCompat
 import android.support.v4.content.ContextCompat
 import android.support.v4.hardware.fingerprint.FingerprintManagerCompat
-import android.support.v4.os.CancellationSignal
 import java.security.KeyStore
+import java.security.Signature
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.Mac
 import javax.crypto.SecretKey
 
-/**
- * As of now, only supports background detection.
- */
 object FingerprintCompat {
 
     private const val KEYSTORE = "AndroidKeyStore"
@@ -39,6 +37,7 @@ object FingerprintCompat {
         if (Build.VERSION.SDK_INT < 23) {
             return false
         }
+        @Suppress("DEPRECATION")
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.USE_FINGERPRINT) != PackageManager.PERMISSION_GRANTED) return false
         val keyguardManager = context.getSystemService(KeyguardManager::class.java)
         keyguardManager ?: return false
@@ -70,29 +69,18 @@ object FingerprintCompat {
         return FingerprintManagerCompat.CryptoObject(cipher)
     }
 
+    /**
+     * This uses API-23.
+     * There is no interface for this, but you could always implement
+     * your own Dialog or whatever and call this yourself then.
+     */
+    @Suppress("DEPRECATION")
     @RequiresApi(23)
     @RequiresPermission(Manifest.permission.USE_FINGERPRINT)
-    fun authenticate(context: Context, callback: Callback) : Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            callback.onFingerprintError(0, "Build.VERSION.SDK_INT")
-            return false
-        }
+    fun background(context: Context, callback: Callback): android.support.v4.os.CancellationSignal? {
+        if (! available(context)) return null
+        val cancellationSignal = android.support.v4.os.CancellationSignal()
         val fingerprintManager = FingerprintManagerCompat.from(context)
-        if (! fingerprintManager.hasEnrolledFingerprints()) {
-            callback.onFingerprintError(0, "hasEnrolledFingerprints")
-            return false
-        }
-        if (! fingerprintManager.isHardwareDetected) {
-            callback.onFingerprintError(0, "isHardwareDetected")
-            return false
-        }
-        return authenticate23(fingerprintManager, context, callback)
-    }
-
-    @RequiresApi(23)
-    @RequiresPermission(Manifest.permission.USE_FINGERPRINT)
-    fun authenticate23(fingerprintManager: FingerprintManagerCompat, context: Context, callback: Callback) : Boolean {
-        val cancellationSignal = CancellationSignal()
         fingerprintManager.authenticate(signature(), 0, cancellationSignal, object: FingerprintManagerCompat.AuthenticationCallback() {
             override fun onAuthenticationHelp(helpMsgId: Int, helpString: CharSequence?) {
                 super.onAuthenticationHelp(helpMsgId, helpString)
@@ -100,7 +88,8 @@ object FingerprintCompat {
             }
             override fun onAuthenticationSucceeded(result: FingerprintManagerCompat.AuthenticationResult?) {
                 super.onAuthenticationSucceeded(result)
-                callback.onFingerprintSucceeded(result?.cryptoObject)
+                // result?.cryptoObject as FingerprintManagerCompat.CryptoObject
+                callback.onFingerprintSucceeded(result?.cryptoObject?.signature, result?.cryptoObject?.cipher, result?.cryptoObject?.mac)
             }
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
@@ -111,20 +100,48 @@ object FingerprintCompat {
                 callback.onFingerprintError(errMsgId, errString)
             }
         }, Handler())
-        return true
+        return cancellationSignal
     }
 
+    /**
+     * This uses API-28 with the build-in prompt dialog.
+     */
     @RequiresApi(28)
     @RequiresPermission(Manifest.permission.USE_BIOMETRIC)
-    fun authenticate28(context: Context) {
-        BiometricPrompt.Builder(context)
-                .setTitle("Title")
-                .setSubtitle("Subtitle")
-                .setDescription("Description")
-                .setNegativeButton("Negative", context.mainExecutor, DialogInterface.OnClickListener { dialog, _ ->
-                    dialog.dismiss()
-                })
-                .build()
+    fun foreground(context: Context, callback: Callback, title: String, subtitle: String? = null, description: String? = null): android.os.CancellationSignal? {
+        if (! available(context)) return null
+        val biometricPromptBuilder = BiometricPrompt.Builder(context).setTitle(title)
+        subtitle?.let {
+            biometricPromptBuilder.setSubtitle(subtitle)
+        }
+        description?.let {
+            biometricPromptBuilder.setDescription(description)
+        }
+        biometricPromptBuilder.setNegativeButton(context.getString(android.R.string.cancel), context.mainExecutor, DialogInterface.OnClickListener { dialog, _ ->
+            callback.onFingerprintFailed()
+            dialog.dismiss()
+        })
+        val cancellationSignal = android.os.CancellationSignal()
+        biometricPromptBuilder.build().authenticate(cancellationSignal, context.mainExecutor, object: BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationHelp(helpMsgId: Int, helpString: CharSequence?) {
+                super.onAuthenticationHelp(helpMsgId, helpString)
+                callback.onFingerprintHelp(helpMsgId, helpString)
+            }
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                super.onAuthenticationSucceeded(result)
+                // result?.cryptoObject as BiometricPrompt.CryptoObject
+                callback.onFingerprintSucceeded(result?.cryptoObject?.signature, result?.cryptoObject?.cipher, result?.cryptoObject?.mac)
+            }
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                callback.onFingerprintFailed()
+            }
+            override fun onAuthenticationError(errMsgId: Int, errString: CharSequence?) {
+                super.onAuthenticationError(errMsgId, errString)
+                callback.onFingerprintError(errMsgId, errString)
+            }
+        })
+        return cancellationSignal
     }
 
     fun drawable(context: Context, @ColorInt color: Int = Color.WHITE): Drawable? {
@@ -133,15 +150,15 @@ object FingerprintCompat {
         return drawable
     }
 
-    open interface Callback {
+    interface Callback {
 
-        open fun onFingerprintSucceeded(result: FingerprintManagerCompat.CryptoObject?)
+        fun onFingerprintSucceeded(signature: Signature?, cipher: Cipher?, mac: Mac?)
 
-        open fun onFingerprintHelp(helpMsgId: Int, helpString: CharSequence?)
+        fun onFingerprintHelp(helpMsgId: Int, helpString: CharSequence?)
 
-        open fun onFingerprintFailed()
+        fun onFingerprintFailed()
 
-        open fun onFingerprintError(errMsgId: Int, errString: CharSequence?)
+        fun onFingerprintError(errMsgId: Int, errString: CharSequence?)
 
     }
 
